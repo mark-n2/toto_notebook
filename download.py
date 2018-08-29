@@ -5,6 +5,9 @@ import os
 DB_FOLDER = "data"
 DB_NAME = "jleague.db"
 
+"""
+Jリーグ公式サイトからのデータ収集
+"""
 def download_result(year, competition=0):
     """
     Jリーグの公式記録ページから、勝敗記録を取得する。
@@ -162,3 +165,89 @@ def _processing_rename_studium(df):
     df = _rename_studium(df, "群馬陸", "正田スタ")
     df = _rename_studium(df, "南長野", "長野Ｕ")
     return df
+
+"""
+Football-Labからのデータ収集
+"""
+def _rename_team_by_record(rank):
+    record = get_db_data()
+    teams = pd.concat([record["ホーム"],record["アウェイ"]]).drop_duplicates()
+    for i in range(len(rank["チーム"])):
+        for team in teams:
+            if rank.loc[i, "チーム"].endswith(team) is True:
+                rank.loc[i, "チーム"] = team
+    return rank
+    
+def fl_get_rank(competition=1, year=2018):
+    """
+    順位表の取得
+    """
+    url = "http://www.football-lab.jp/summary/team_ranking/j" + str(competition) + "/?year=" + str(year)
+    dfs = pd.io.html.read_html(url)
+    rank = dfs[0].drop("Unnamed: 1",axis=1).rename(columns={"Unnamed: 2":"チーム"})
+    rank = _rename_team_by_record(rank)
+    return rank
+
+def fl_get_chance_rate(competition=1, year=2018):
+    """
+    チャンス構築率の取得
+    """
+    url = "http://www.football-lab.jp/summary/team_ranking/j" + str(competition) + "/?year=" + str(year) + "&data=chance"
+    dfs = pd.io.html.read_html(url)
+    attack = dfs[0].drop("Unnamed: 0",axis=1)
+    attack = attack.drop("Unnamed: 3",axis=1)
+    attack = attack.drop("Unnamed: 5",axis=1)
+    attack = attack.drop("Unnamed: 7",axis=1)
+    attack = attack.drop("Unnamed: 9",axis=1)
+    attack = attack.drop("Unnamed: 11",axis=1)
+    attack = attack.rename(columns={"Unnamed: 1":"チーム"})
+    attack = _rename_team_by_record(attack)
+    defense = dfs[2].drop("Unnamed: 0",axis=1)
+    defense = defense.drop("Unnamed: 3",axis=1)
+    defense = defense.drop("Unnamed: 5",axis=1)
+    defense = defense.drop("Unnamed: 7",axis=1)
+    defense = defense.drop("Unnamed: 9",axis=1)
+    defense = defense.drop("Unnamed: 11",axis=1)
+    defense = defense.rename(columns={"Unnamed: 1":"チーム"})
+    defense = _rename_team_by_record(defense)
+    return attack, defense
+
+import requests
+import re
+import ast
+from bs4 import BeautifulSoup,Comment
+def fl_get_goal_pattern(competition=1, year=2018):
+    """
+    ゴールパターンの取得
+    """
+    url = "http://www.football-lab.jp/summary/team_ranking/j" + str(competition) + "/?year=" + str(year) + "&data=goal"
+    response = requests.get(url)
+    bs = BeautifulSoup(response.content,"lxml")
+    test=str(bs.find(string=re.compile("function drawChart")))
+    tbl = re.search(r'arrayToDataTable\((.*?)\)', test, flags=re.DOTALL|re.MULTILINE).group(1)
+    return pd.DataFrame(ast.literal_eval(tbl))
+
+def fl_get_lost_pattern(competition=1, year=2018):
+    """
+    失点パターンの取得
+    """
+    url = "http://www.football-lab.jp/summary/team_ranking/j" + str(competition) + "/?year=" + str(year) + "&data=lost"
+    response = requests.get(url)
+    bs = BeautifulSoup(response.content,"lxml")
+    test=str(bs.find(string=re.compile("function drawChart")))
+    tbl = re.search(r'arrayToDataTable\((.*?)\)', test, flags=re.DOTALL|re.MULTILINE).group(1)
+    return pd.DataFrame(ast.literal_eval(tbl))
+
+def fl_get_possession(competition=1, year=2018):
+    """
+    ボール支配率の取得
+    """
+    url = "http://www.football-lab.jp/summary/team_ranking/j" + str(competition) + "/?year=" + str(year) + "&data=possession"
+    response = requests.get(url)
+    bs = BeautifulSoup(response.content,"lxml")
+    test=str(bs.find(string=re.compile("function drawChart"))).replace("(%)","%")    # なぜか(%)のところが変換できないので文字列として変換
+    tbl = re.search(r'arrayToDataTable\((.*?)\)', test, flags=re.DOTALL|re.MULTILINE).group(1)
+    tbl = re.sub(", \{.+?\}","", tbl)   # annotation属性が残ってしまうので削除
+    col = ast.literal_eval(tbl)[0]
+    col.append("dummy")
+    return pd.DataFrame(ast.literal_eval(tbl)[1:],columns=col).drop("dummy",axis=1) # 不必要な列があるのでdummyと命名して削除
