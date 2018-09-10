@@ -213,3 +213,69 @@ def download_all_fl_data(db_file=DB_NAME, db_folder=DB_FOLDER):
     data.to_sql("data", conn, if_exists="replace") # DFをDBに変換
     conn.close()
     return data
+
+"""
+TOTO公式サイトからの予定データ収集
+"""
+def _process_toto_frame(tmp):
+    """
+    TOTOの予定データを見やすい形に編集
+    """
+    return tmp[1:].drop(0,axis=1).drop(5,axis=1).rename(columns={1:tmp[1][0],2:tmp[2][0],3:tmp[3][0],4:"ホーム",6:"アウェイ"})
+
+TOTO_DB = "data/toto.db"
+def _get_toto_db():
+    """
+    TOTOの予定データのチーム名・スタジアム名を公式記録上のデータに変換するDBデータを取得
+    (直近100回分の開催データを収集してDB作成)
+    """
+    conn = sqlite3.connect(TOTO_DB)
+    team_df = pd.io.sql.read_sql_query("SELECT * from team", conn)
+    studium_df = pd.io.sql.read_sql_query("SELECT * from studium", conn)
+    conn.close()
+    team_df = team_df.set_index("TOTO",drop=True)
+    studium_df = studium_df.set_index("TOTO",drop=True)
+    return team_df, studium_df
+    
+def _change_names(tmp, team_df, studium_df):
+    """
+    TOTOの予定データのチーム名・スタジアム名を公式記録上のデータに変換
+    """
+    for i in range(len(tmp)):
+        tmp.iloc[i]["ホーム"] = team_df["公式記録"][tmp.iloc[i]["ホーム"]]
+        tmp.iloc[i]["アウェイ"] = team_df["公式記録"][tmp.iloc[i]["アウェイ"]]
+        for j in range(len(studium_df)):
+            if tmp.iloc[i]["競技場"] == studium_df.index[j]:
+                tmp.iloc[i]["競技場"] = studium_df.iloc[j]["公式記録"]
+                break
+    return tmp
+
+def get_toto_schedule(holdCntId):
+    """
+    TOTOの対象ゲームを収集
+    <引数>holdCntId: 開催回
+    直近100回分の開催データから、公式記録の名称との変換DBを作成したので、これをもとにチーム名・スタジアム名を変換する
+    """
+    toto = None
+    miniA = None
+    miniB = None
+    goal = None
+    url = "http://sport-kuji.toto-dream.com/dci/I/IPA/IPA01.do?op=disptotoLotInfo&holdCntId=%04d" % holdCntId
+    dfs = pd.io.html.read_html(url)
+    team_df, studium_df = _get_toto_db()
+    for df in dfs:
+        if len(df)>=2 and df[1][0]=="開催日":
+            if len(df)==14:
+                toto = _process_toto_frame(df)
+                toto = _change_names(toto, team_df, studium_df)
+            elif len(df) == 6:
+                if miniA is None:
+                    miniA = _process_toto_frame(df)
+                    miniA = _change_names(miniA, team_df, studium_df)
+                else:
+                    miniB = _process_toto_frame(df)
+                    miniB = _change_names(miniB, team_df, studium_df)
+            elif len(df) == 4 or len(df) == 3:
+                goal = _process_toto_frame(df)
+                goal = _change_names(goal, team_df, studium_df)
+    return toto, miniA, miniB, goal
