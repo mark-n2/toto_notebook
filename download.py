@@ -21,16 +21,16 @@ def download_result(year, competition=0):
         url = 'https://data.j-league.or.jp/SFMS01/search?competition_years='+ str(year) + '&competition_frame_ids=' + str(competition)
     dfs = pd.io.html.read_html(url)
     # 取得したDataFrameの一番目が結果表
-    df = dfs[0].drop(['インターネット中継・TV放送','入場者数'],axis=1) # 結果に関係なさそうな放送局と入場者数はこの時点で削除しておく
+    #df = dfs[0].drop(['インターネット中継・TV放送','入場者数'],axis=1) # 結果に関係なさそうな放送局と入場者数はこの時点で削除しておく
     return dfs[0]
     
-def download_all_results(db_file=DB_NAME, db_folder=DB_FOLDER):
+def download_all_results(db_file=DB_NAME, db_folder=DB_FOLDER, start=1992, end=2022):
     """
     Jリーグの公式記録ページから、勝敗記録を取得し、SQLite3データベース化する。
-    1992年～2017年のデータを取得
+    start年～end年のデータを取得
     """
     result = pd.DataFrame()
-    for year in range(1992,2018):
+    for year in range(start,end):
         df = download_result(year)
         result = pd.concat([result, df])
     
@@ -147,7 +147,9 @@ def fl_get_cbp(competition=1, year=2018, data=None):
     dfs = pd.io.html.read_html(url)
     cbp = dfs[0].drop("Unnamed: 0",axis=1).drop("Unnamed: 1",axis=1).rename(columns={"Unnamed: 2":"チーム"})
     cbp = _rename_team_by_record(cbp)
-    cbp = cbp.drop("順位",axis=1).drop("勝点",axis=1).drop("得点",axis=1).drop("失点",axis=1).drop("試合平均",axis=1).drop("最近５試合",axis=1)
+    cbp = cbp.drop("順位",axis=1).drop("勝点",axis=1).drop("得点",axis=1).drop("失点",axis=1).drop("試合平均",axis=1)
+    if "最近５試合" in list(cbp.keys()):
+        cbp = cbp.drop("最近５試合",axis=1)
     return cbp
 
 def fl_get_all_data(competition=1, year=2018):
